@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 from numpy import array
 from PIL import ImageGrab, Image, ImageTk
@@ -11,6 +12,7 @@ import os
 import threading
 import tkinter as tk
 from difflib import get_close_matches
+import moviepy.editor as mpe
 
 
 def print_help():
@@ -45,7 +47,13 @@ class Recorder:
         self.args = sys.argv[1:]
         self.video, self.screen, self.mic, self.audio = self.get_details()
         self.file_name = datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '.mp4'
-        self.temp_dir = tempfile.gettempdir()
+        temp_dir = tempfile.gettempdir()
+        self.video_file_url = temp_dir + '\\temp_video.mp4'
+        self.audio_file_url = temp_dir + '\\temp_audio.wav'
+        path = os.path.expanduser('~')
+        self.path_documents = os.path.join(path, 'Documents', 'Recordings')
+        if not os.path.exists(self.path_documents):
+            os.mkdir(self.path_documents)
 
         # Setting up audio
         self.check_audio = True
@@ -53,7 +61,6 @@ class Recorder:
         self.sample_format = pyaudio.paInt16
         self.channels = 2
         self.fs = 44100
-        self.filename = "output.wav"
         self.p = pyaudio.PyAudio()
         self.stream = self.p.open(format=self.sample_format,
                                   channels=self.channels,
@@ -68,7 +75,7 @@ class Recorder:
         self.width = GetSystemMetrics(0)
         self.height = GetSystemMetrics(1)
         fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-        self.captured_video = cv2.VideoWriter(self.file_name, fourcc, 20.0, (self.width, self.height))
+        self.captured_video = cv2.VideoWriter(self.video_file_url, fourcc, 20.0, (self.width, self.height))
 
         # Initiate recording
         thread1 = threading.Thread(target=self.start_video)
@@ -76,6 +83,22 @@ class Recorder:
         self.thread3 = threading.Thread(target=self.start_window)
         thread1.start()
         thread2.start()
+
+        # Post recording
+        while True:
+            if not thread1.is_alive() and not thread2.is_alive() and not self.thread3.is_alive():
+                fps = self.find_fps()
+                self.combine_audio(fps)
+                print('[+] Done processing')
+                break
+            else:
+                time.sleep(1)
+
+        # Clean up
+        print('[+] Cleaning up')
+        os.remove(self.audio_file_url)
+        os.remove(self.video_file_url)
+        sys.exit()
 
     def start_video(self):
         check = True
@@ -92,12 +115,15 @@ class Recorder:
             if check:
                 self.thread3.start()
                 check = False
+            if not self.thread3.is_alive():
+                break
 
             self.captured_video.write(screen_final)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
         self.capture.release()
+        self.captured_video.release()
         cv2.destroyAllWindows()
 
     def start_audio(self):
@@ -110,7 +136,7 @@ class Recorder:
         self.p.terminate()
 
         # Save audio
-        write_audio = wave.open(self.filename, 'wb')
+        write_audio = wave.open(self.audio_file_url, 'wb')
         write_audio.setnchannels(self.channels)
         write_audio.setsampwidth(self.p.get_sample_size(self.sample_format))
         write_audio.setframerate(self.fs)
@@ -139,6 +165,17 @@ class Recorder:
         show_frame()
         window.call('wm', 'attributes', '.', '-topmost', '1')
         window.mainloop()
+
+    def combine_audio(self, fps):
+        my_clip = mpe.VideoFileClip(self.video_file_url)
+        audio_background = mpe.AudioFileClip(self.audio_file_url)
+        final_clip = my_clip.set_audio(audio_background)
+        final_clip.write_videofile(self.path_documents, fps=fps)
+
+    def find_fps(self):
+        video = cv2.VideoCapture(self.video_file_url)
+        fps = video.get(cv2.CAP_PROP_FPS)
+        return fps
 
     def get_details(self):
         video = True
