@@ -10,6 +10,7 @@ import wave
 import os
 import threading
 import tkinter as tk
+from difflib import get_close_matches
 
 
 def print_help():
@@ -144,6 +145,17 @@ class Recorder:
         screen = True
         mic = True
         audio = True
+        check_args = ['--help', '--no-video', '--no-screen', '--no-mic', '--no-audio']
+        if not self.args:
+            return video, screen, mic, audio
+        for arg in self.args:
+            if arg not in check_args:
+                match = get_close_matches(arg, check_args, 1)
+                if match:
+                    print(f'[-] Invalid argument {arg}, do you mean {match[0]} ?')
+                else:
+                    print(f'[-] Invalid argument {arg}, \n[-] please use --help for more details')
+                sys.exit()
         if '--help' in self.args:
             print_help()
             sys.exit()
