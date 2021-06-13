@@ -12,7 +12,7 @@ import os
 import threading
 import tkinter as tk
 from difflib import get_close_matches
-import moviepy.editor as mpe
+import moviepy.editor as mv
 
 
 def print_help():
@@ -40,6 +40,15 @@ def suppress_qt_warnings():
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     os.environ["QT_SCREEN_SCALE_FACTORS"] = "1"
     os.environ["QT_SCALE_FACTOR"] = "1"
+
+
+def waiting():
+    print(f'[+] Recording starts in ', end='')
+    for i in range(5, 0, -1):
+        print(i, end='')
+        time.sleep(1)
+        print('\b', end='')
+    print('\b\b\b\b\bed')
 
 
 class Recorder:
@@ -78,21 +87,20 @@ class Recorder:
         self.captured_video = cv2.VideoWriter(self.video_file_url, fourcc, 20.0, (self.width, self.height))
 
         # Initiate recording
+        self.waiting_thread = threading.Thread(target=waiting)
         thread1 = threading.Thread(target=self.start_video)
         thread2 = threading.Thread(target=self.start_audio)
         self.thread3 = threading.Thread(target=self.start_window)
+        self.waiting_thread.start()
         thread1.start()
         thread2.start()
 
         # Post recording
-        while True:
-            if not thread1.is_alive() and not thread2.is_alive() and not self.thread3.is_alive():
-                fps = self.find_fps()
-                self.combine_audio(fps)
-                print('[+] Done processing')
-                break
-            else:
-                time.sleep(1)
+        thread1.join()
+        thread2.join()
+        self.thread3.join()
+        self.combine_audio()
+        print('[+] Done processing')
 
         # Clean up
         print('[+] Cleaning up')
@@ -117,8 +125,8 @@ class Recorder:
                 check = False
             if not self.thread3.is_alive():
                 break
-
-            self.captured_video.write(screen_final)
+            if not self.waiting_thread.is_alive():
+                self.captured_video.write(screen_final)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
@@ -128,6 +136,7 @@ class Recorder:
 
     def start_audio(self):
         frames = []
+        self.waiting_thread.join()
         while self.capture.isOpened():
             data = self.stream.read(self.chunk)
             frames.append(data)
@@ -166,16 +175,12 @@ class Recorder:
         window.call('wm', 'attributes', '.', '-topmost', '1')
         window.mainloop()
 
-    def combine_audio(self, fps):
-        my_clip = mpe.VideoFileClip(self.video_file_url)
-        audio_background = mpe.AudioFileClip(self.audio_file_url)
-        final_clip = my_clip.set_audio(audio_background)
-        final_clip.write_videofile(self.path_documents, fps=fps)
-
-    def find_fps(self):
-        video = cv2.VideoCapture(self.video_file_url)
-        fps = video.get(cv2.CAP_PROP_FPS)
-        return fps
+    def combine_audio(self):
+        video_clip = mv.VideoFileClip(self.video_file_url)
+        audio_clip = mv.AudioFileClip(self.audio_file_url)
+        new_audio_clip = mv.CompositeAudioClip([audio_clip])
+        video_clip.audio = new_audio_clip
+        video_clip.write_videofile(os.path.join(self.path_documents, self.file_name))
 
     def get_details(self):
         video = True
